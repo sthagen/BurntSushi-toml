@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/BurntSushi/toml/internal"
 )
 
 type parser struct {
@@ -298,22 +300,14 @@ func (p *parser) valueFloat(it item) (interface{}, tomlType) {
 	return num, p.typeOfPrimitive(it)
 }
 
-// Timezones used for local datetime, date, and time.
-var (
-	localOffset   = func() int { _, o := time.Now().Zone(); return o }()
-	LocalDatetime = time.FixedZone("datetime-local", localOffset)
-	LocalDate     = time.FixedZone("date-local", localOffset)
-	LocalTime     = time.FixedZone("time-local", localOffset)
-)
-
 var dtTypes = []struct {
 	fmt  string
 	zone *time.Location
 }{
 	{time.RFC3339Nano, time.Local},
-	{"2006-01-02T15:04:05.999999999", LocalDatetime},
-	{"2006-01-02", LocalDate},
-	{"15:04:05.999999999", LocalTime},
+	{"2006-01-02T15:04:05.999999999", internal.LocalDatetime},
+	{"2006-01-02", internal.LocalDate},
+	{"15:04:05.999999999", internal.LocalTime},
 }
 
 func (p *parser) valueDatetime(it item) (interface{}, tomlType) {
