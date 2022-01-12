@@ -22,39 +22,34 @@ func TestEncodeRoundTrip(t *testing.T) {
 	}
 
 	var inputs = Config{
-		13,
-		[]string{"one", "two", "three"},
-		3.145,
-		[]int{11, 2, 3, 4},
-		time.Now(),
-		net.ParseIP("192.168.59.254"),
+		Age:        13,
+		Cats:       []string{"one", "two", "three"},
+		Pi:         3.145,
+		Perfection: []int{11, 2, 3, 4},
+		DOB:        time.Now(),
+		Ipaddress:  net.ParseIP("192.168.59.254"),
 	}
 
-	var firstBuffer bytes.Buffer
-	e := NewEncoder(&firstBuffer)
-	err := e.Encode(inputs)
+	var (
+		firstBuffer  bytes.Buffer
+		secondBuffer bytes.Buffer
+		outputs      Config
+	)
+	err := NewEncoder(&firstBuffer).Encode(inputs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var outputs Config
-	if _, err := Decode(firstBuffer.String(), &outputs); err != nil {
-		t.Logf("Could not decode:\n-----\n%s\n-----\n",
-			firstBuffer.String())
+	_, err = Decode(firstBuffer.String(), &outputs)
+	if err != nil {
+		t.Logf("Could not decode:\n%s\n", firstBuffer.String())
 		t.Fatal(err)
 	}
-
-	// could test each value individually, but I'm lazy
-	var secondBuffer bytes.Buffer
-	e2 := NewEncoder(&secondBuffer)
-	err = e2.Encode(outputs)
+	err = NewEncoder(&secondBuffer).Encode(outputs)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if firstBuffer.String() != secondBuffer.String() {
-		t.Error(
-			firstBuffer.String(),
-			"\n\n is not identical to\n\n",
-			secondBuffer.String())
+		t.Errorf("%s\n\nIS NOT IDENTICAL TO\n\n%s", firstBuffer.String(), secondBuffer.String())
 	}
 }
 
@@ -336,6 +331,11 @@ type (
 	food  struct{ F []string }
 	fun   func()
 	cplx  complex128
+
+	sound2 struct{ S string }
+	food2  struct{ F []string }
+	fun2   func()
+	cplx2  complex128
 )
 
 // This is intentionally wrong (pointer receiver)
@@ -343,6 +343,14 @@ func (s *sound) MarshalText() ([]byte, error) { return []byte(s.S), nil }
 func (f food) MarshalText() ([]byte, error)   { return []byte(strings.Join(f.F, ", ")), nil }
 func (f fun) MarshalText() ([]byte, error)    { return []byte("why would you do this?"), nil }
 func (c cplx) MarshalText() ([]byte, error) {
+	cplx := complex128(c)
+	return []byte(fmt.Sprintf("(%f+%fi)", real(cplx), imag(cplx))), nil
+}
+
+func (s *sound2) MarshalTOML() ([]byte, error) { return []byte(s.S), nil }
+func (f food2) MarshalTOML() ([]byte, error)   { return []byte(strings.Join(f.F, ", ")), nil }
+func (f fun2) MarshalTOML() ([]byte, error)    { return []byte("why would you do this?"), nil }
+func (c cplx2) MarshalTOML() ([]byte, error) {
 	cplx := complex128(c)
 	return []byte(fmt.Sprintf("(%f+%fi)", real(cplx), imag(cplx))), nil
 }
@@ -367,6 +375,55 @@ func TestEncodeTextMarshaler(t *testing.T) {
 		},
 		Food:    food{[]string{"chicken", "fish"}},
 		Food2:   &food{[]string{"chicken", "fish"}},
+		Complex: complex(42, 666),
+		Fun:     func() { panic("x") },
+	}
+
+	var buf bytes.Buffer
+	if err := NewEncoder(&buf).Encode(x); err != nil {
+		t.Fatal(err)
+	}
+
+	want := `Name = "Goblok"
+Sound2 = "miauw"
+Food = "chicken, fish"
+Food2 = "chicken, fish"
+Complex = "(42.000000+666.000000i)"
+Fun = "why would you do this?"
+
+[Labels]
+  color = "black"
+  type = "cat"
+
+[Sound]
+  S = "miauw"
+`
+
+	if buf.String() != want {
+		t.Error("\n" + buf.String())
+	}
+}
+
+func TestEncodeTOMLMarshaler(t *testing.T) {
+	x := struct {
+		Name    string
+		Labels  map[string]string
+		Sound   sound2
+		Sound2  *sound2
+		Food    food2
+		Food2   *food2
+		Complex cplx2
+		Fun     fun2
+	}{
+		Name:   "Goblok",
+		Sound:  sound2{"miauw"},
+		Sound2: &sound2{"miauw"},
+		Labels: map[string]string{
+			"type":  "cat",
+			"color": "black",
+		},
+		Food:    food2{[]string{"chicken", "fish"}},
+		Food2:   &food2{[]string{"chicken", "fish"}},
 		Complex: complex(42, 666),
 		Fun:     func() { panic("x") },
 	}

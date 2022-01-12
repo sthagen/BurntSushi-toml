@@ -1,9 +1,9 @@
 package toml
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"os"
 	"reflect"
 	"strings"
@@ -267,6 +267,50 @@ func TestDecodeIntOverflow(t *testing.T) {
 	}
 }
 
+func TestDecodeFloatOverflow(t *testing.T) {
+	tests := []struct {
+		value    string
+		overflow bool
+	}{
+		{fmt.Sprintf(`F32 = %f`, math.MaxFloat64), true},
+		{fmt.Sprintf(`F32 = %f`, -math.MaxFloat64), true},
+		{fmt.Sprintf(`F32 = %f`, math.MaxFloat32*1.1), true},
+		{fmt.Sprintf(`F32 = %f`, -math.MaxFloat32*1.1), true},
+		{fmt.Sprintf(`F32 = %d`, maxSafeFloat32Int+1), true},
+		{fmt.Sprintf(`F32 = %d`, -maxSafeFloat32Int-1), true},
+		{fmt.Sprintf(`F64 = %d`, maxSafeFloat64Int+1), true},
+		{fmt.Sprintf(`F64 = %d`, -maxSafeFloat64Int-1), true},
+
+		{fmt.Sprintf(`F32 = %f`, math.MaxFloat32), false},
+		{fmt.Sprintf(`F32 = %f`, -math.MaxFloat32), false},
+		{fmt.Sprintf(`F32 = %d`, maxSafeFloat32Int), false},
+		{fmt.Sprintf(`F32 = %d`, -maxSafeFloat32Int), false},
+		{fmt.Sprintf(`F64 = %f`, math.MaxFloat64), false},
+		{fmt.Sprintf(`F64 = %f`, -math.MaxFloat64), false},
+		{fmt.Sprintf(`F64 = %f`, math.MaxFloat32), false},
+		{fmt.Sprintf(`F64 = %f`, -math.MaxFloat32), false},
+		{fmt.Sprintf(`F64 = %d`, maxSafeFloat64Int), false},
+		{fmt.Sprintf(`F64 = %d`, -maxSafeFloat64Int), false},
+	}
+
+	for _, tt := range tests {
+		t.Run("", func(t *testing.T) {
+			var tab struct {
+				F32 float32
+				F64 float64
+			}
+			_, err := Decode(tt.value, &tab)
+
+			if tt.overflow && err == nil {
+				t.Fatal("expected error, but err is nil")
+			}
+			if (tt.overflow && !errorContains(err, "out of range")) || (!tt.overflow && err != nil) {
+				t.Fatalf("unexpected error:\n%v", err)
+			}
+		})
+	}
+}
+
 func TestDecodeSizedInts(t *testing.T) {
 	type table struct {
 		U8  uint8
@@ -302,6 +346,10 @@ func TestDecodeSizedInts(t *testing.T) {
 	}
 }
 
+type NopUnmarshalTOML int
+
+func (NopUnmarshalTOML) UnmarshalTOML(p interface{}) error { return nil }
+
 func TestDecodeTypes(t *testing.T) {
 	type mystr string
 
@@ -309,16 +357,27 @@ func TestDecodeTypes(t *testing.T) {
 		v    interface{}
 		want string
 	}{
-		{new(map[string]int64), ""},
-		{new(map[mystr]int64), ""},
+		{new(map[string]bool), ""},
+		{new(map[mystr]bool), ""},
+		{new(NopUnmarshalTOML), ""},
 
-		{3, "non-pointer int"},
-		{(*int)(nil), "nil"},
+		{3, `toml: cannot decode to non-pointer "int"`},
+		{map[string]interface{}{}, `toml: cannot decode to non-pointer "map[string]interface {}"`},
+
+		{(*int)(nil), `toml: cannot decode to nil value of "*int"`},
+		{(*Unmarshaler)(nil), `toml: cannot decode to nil value of "*toml.Unmarshaler"`},
+		{nil, `toml: cannot decode to non-pointer <nil>`},
+
 		{new(map[int]string), "cannot decode to a map with non-string key type"},
 		{new(map[interface{}]string), "cannot decode to a map with non-string key type"},
+
+		{new(struct{ F int }), `toml: incompatible types: TOML key "F" has type bool; destination has type integer`},
+		{new(map[string]int), `toml: incompatible types: TOML key "F" has type bool; destination has type integer`},
+		{new(int), `toml: cannot decode to type int`},
+		{new([]int), "toml: cannot decode to type []int"},
 	} {
 		t.Run(fmt.Sprintf("%T", tt.v), func(t *testing.T) {
-			_, err := Decode(`x = 3`, tt.v)
+			_, err := Decode(`F = true`, tt.v)
 			if !errorContains(err, tt.want) {
 				t.Errorf("wrong error\nhave: %q\nwant: %q", err, tt.want)
 			}
@@ -531,31 +590,66 @@ type ingredient struct {
 }
 
 func TestDecodeSlices(t *testing.T) {
-	type T struct {
-		S []string
-	}
-	for i, tt := range []struct {
-		v     T
-		input string
-		want  T
+	type (
+		T struct {
+			Arr []string
+			Tbl map[string]interface{}
+		}
+		M map[string]interface{}
+	)
+	tests := []struct {
+		input    string
+		in, want T
 	}{
-		{T{}, "", T{}},
-		{T{[]string{}}, "", T{[]string{}}},
-		{T{[]string{"a", "b"}}, "", T{[]string{"a", "b"}}},
-		{T{}, "S = []", T{[]string{}}},
-		{T{[]string{}}, "S = []", T{[]string{}}},
-		{T{[]string{"a", "b"}}, "S = []", T{[]string{}}},
-		{T{}, `S = ["x"]`, T{[]string{"x"}}},
-		{T{[]string{}}, `S = ["x"]`, T{[]string{"x"}}},
-		{T{[]string{"a", "b"}}, `S = ["x"]`, T{[]string{"x"}}},
-	} {
-		if _, err := Decode(tt.input, &tt.v); err != nil {
-			t.Errorf("[%d] %s", i, err)
-			continue
-		}
-		if !reflect.DeepEqual(tt.v, tt.want) {
-			t.Errorf("[%d] got %#v; want %#v", i, tt.v, tt.want)
-		}
+		{"",
+			T{}, T{}},
+
+		// Leave existing values alone.
+		{"",
+			T{[]string{}, M{"arr": []string{}}},
+			T{[]string{}, M{"arr": []string{}}}},
+		{"",
+			T{[]string{"a"}, M{"arr": []string{"b"}}},
+			T{[]string{"a"}, M{"arr": []string{"b"}}}},
+
+		// Empty array always allocates (see #339)
+		{`arr = []
+		tbl = {arr = []}`,
+			T{},
+			T{[]string{}, M{"arr": []interface{}{}}}},
+		{`arr = []
+		tbl = {}`,
+			T{[]string{}, M{}},
+			T{[]string{}, M{}}},
+
+		{`arr = []`,
+			T{[]string{"a"}, M{}},
+			T{[]string{}, M{}}},
+
+		{`arr = ["x"]
+		 tbl = {arr=["y"]}`,
+			T{},
+			T{[]string{"x"}, M{"arr": []interface{}{"y"}}}},
+		{`arr = ["x"]
+		 tbl = {arr=["y"]}`,
+			T{[]string{}, M{}},
+			T{[]string{"x"}, M{"arr": []interface{}{"y"}}}},
+		{`arr = ["x"]
+		tbl = {arr=["y"]}`,
+			T{[]string{"a", "b"}, M{"arr": []interface{}{"c", "d"}}},
+			T{[]string{"x"}, M{"arr": []interface{}{"y"}}}},
+	}
+
+	for _, tt := range tests {
+		t.Run("", func(t *testing.T) {
+			_, err := Decode(tt.input, &tt.in)
+			if err != nil {
+				t.Error(err)
+			}
+			if !reflect.DeepEqual(tt.in, tt.want) {
+				t.Errorf("\nhave: %#v\nwant: %#v", tt.in, tt.want)
+			}
+		})
 	}
 }
 
@@ -618,56 +712,6 @@ func TestDecodePrimitive(t *testing.T) {
 	}
 }
 
-func BenchmarkDecode(b *testing.B) {
-	var testSimple = `
-age = 250
-andrew = "gallant"
-kait = "brady"
-now = 1987-07-05T05:45:00Z
-nowEast = 2017-06-22T16:15:21+08:00
-nowWest = 2017-06-22T02:14:36-06:00
-yesOrNo = true
-pi = 3.14
-colors = [
-	["red", "green", "blue"],
-	["cyan", "magenta", "yellow", "black"],
-]
-
-[My.Cats]
-plato = "cat 1"
-cauchy = """ cat 2
-"""
-`
-
-	type cats struct {
-		Plato  string
-		Cauchy string
-	}
-	type simple struct {
-		Age     int
-		Colors  [][]string
-		Pi      float64
-		YesOrNo bool
-		Now     time.Time
-		NowEast time.Time
-		NowWest time.Time
-		Andrew  string
-		Kait    string
-		My      map[string]cats
-	}
-
-	var val simple
-	_, err := Decode(testSimple, &val)
-	if err != nil {
-		b.Fatal(err)
-	}
-
-	b.ResetTimer()
-	for n := 0; n < b.N; n++ {
-		Decode(testSimple, &val)
-	}
-}
-
 func TestDecodeDatetime(t *testing.T) {
 	// Test here in addition to toml-test to ensure the TZs are correct.
 	tz7 := time.FixedZone("", -3600*7)
@@ -710,36 +754,27 @@ func TestDecodeDatetime(t *testing.T) {
 	}
 }
 
-func TestParseError(t *testing.T) {
-	file :=
-		`a = "a"
-b = "b"
-c = 001  # invalid
-`
-
-	var s struct {
-		A, B string
-		C    int
-	}
-	_, err := Decode(file, &s)
-	if err == nil {
-		t.Fatal("err is nil")
+func TestMetaDotConflict(t *testing.T) {
+	var m map[string]interface{}
+	meta, err := Decode(`
+		"a.b" = "str"
+		a.b   = 1
+		""    = 2
+	`, &m)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	var pErr ParseError
-	if !errors.As(err, &pErr) {
-		t.Fatalf("err is not a ParseError: %T %[1]v", err)
+	want := `"a.b"=String; a.b=Integer; ""=Integer`
+	have := ""
+	for i, k := range meta.Keys() {
+		if i > 0 {
+			have += "; "
+		}
+		have += k.String() + "=" + meta.Type(k...)
 	}
-
-	want := ParseError{
-		Line:    3,
-		LastKey: "c",
-		Message: `Invalid integer "001": cannot have leading zeroes`,
-	}
-	if !strings.Contains(pErr.Message, want.Message) ||
-		pErr.Line != want.Line ||
-		pErr.LastKey != want.LastKey {
-		t.Errorf("unexpected data\nhave: %#v\nwant: %#v", pErr, want)
+	if have != want {
+		t.Errorf("\nhave: %s\nwant: %s", have, want)
 	}
 }
 

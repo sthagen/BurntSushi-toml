@@ -1,5 +1,3 @@
-// +build go1.16
-
 //go:generate ./gen-multi.py
 
 package tomltest
@@ -293,7 +291,7 @@ func (t Test) runValid(p Parser, fsys fs.FS) Test {
 	}
 	if t.Output == "" {
 		// Special case: we expect an empty output here.
-		if t.Path != "valid/empty-file" {
+		if t.Path != "valid/empty-file" && t.Path != "valid/comment/noeol" {
 			return t.fail("stdout is empty")
 		}
 	}
@@ -309,7 +307,7 @@ func (t Test) runValid(p Parser, fsys fs.FS) Test {
 			//return t.fail("decode TOML from encoder %q:\n  %s", cmd, err)
 			return t.fail("decode TOML from encoder:\n  %s", err)
 		}
-		return t.cmpTOML(want, have)
+		return t.CompareTOML(want, have)
 	}
 
 	// Compare for decoder test
@@ -323,7 +321,7 @@ func (t Test) runValid(p Parser, fsys fs.FS) Test {
 		return t.fail("decode JSON output from parser:\n  %s", err)
 	}
 
-	return t.cmpJSON(want, have)
+	return t.CompareJSON(want, have)
 }
 
 // ReadInput reads the file sent to the encoder.
@@ -369,7 +367,7 @@ func (t *Test) ReadWantTOML(fsys fs.FS) (v interface{}, err error) {
 	}
 	_, err = toml.Decode(t.Want, &v)
 	if err != nil {
-		return nil, fmt.Errorf("Could not decode TOML file %q:\n  %s", path, err)
+		return nil, fmt.Errorf("could not decode TOML file %q:\n  %s", path, err)
 	}
 	return v, nil
 }

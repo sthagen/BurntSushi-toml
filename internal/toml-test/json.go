@@ -1,5 +1,3 @@
-// +build go1.16
-
 package tomltest
 
 import (
@@ -8,13 +6,15 @@ import (
 	"time"
 )
 
-// cmpJSON consumes the recursive structure of both want and have
-// simultaneously. If anything is unequal, the result has failed and comparison
-// stops.
+// CompareJSON compares the given arguments.
+//
+// The returned value is a copy of Test with Failure set to a (human-readable)
+// description of the first element that is unequal. If both arguments are
+// equal, Test is returned unchanged.
 //
 // reflect.DeepEqual could work here, but it won't tell us how the two
 // structures are different.
-func (r Test) cmpJSON(want, have interface{}) Test {
+func (r Test) CompareJSON(want, have interface{}) Test {
 	switch w := want.(type) {
 	case map[string]interface{}:
 		return r.cmpJSONMaps(w, have)
@@ -66,7 +66,7 @@ func (r Test) cmpJSONMaps(want map[string]interface{}, have interface{}) Test {
 
 	// Okay, now make sure that each value is equivalent.
 	for k := range want {
-		if sub := r.kjoin(k).cmpJSON(want[k], haveMap[k]); sub.Failed() {
+		if sub := r.kjoin(k).CompareJSON(want[k], haveMap[k]); sub.Failed() {
 			return sub
 		}
 	}
@@ -92,7 +92,7 @@ func (r Test) cmpJSONArrays(want, have interface{}) Test {
 			r.Key, len(wantSlice), len(haveSlice))
 	}
 	for i := 0; i < len(wantSlice); i++ {
-		if sub := r.cmpJSON(wantSlice[i], haveSlice[i]); sub.Failed() {
+		if sub := r.CompareJSON(wantSlice[i], haveSlice[i]); sub.Failed() {
 			return sub
 		}
 	}
@@ -214,16 +214,6 @@ func (r Test) cmpAsDatetimes(kind, want, have string) Test {
 			"  Expected:     %v\n"+
 			"  Your encoder: %v",
 			r.Key, wantT, haveT)
-	}
-	return r
-}
-
-func (r Test) cmpAsDatetimesLocal(want, have string) Test {
-	if datetimeRepl.Replace(want) != datetimeRepl.Replace(have) {
-		return r.fail("Values for key '%s' don't match:\n"+
-			"  Expected:     %v\n"+
-			"  Your encoder: %v",
-			r.Key, want, have)
 	}
 	return r
 }
