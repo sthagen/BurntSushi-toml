@@ -497,6 +497,25 @@ func TestEncodeSkipInvalidType(t *testing.T) {
 	}
 }
 
+func TestEncodeDuration(t *testing.T) {
+	tests := []time.Duration{
+		0,
+		time.Second,
+		time.Minute,
+		time.Hour,
+		248*time.Hour + 45*time.Minute + 24*time.Second,
+		12345678 * time.Nanosecond,
+		12345678 * time.Second,
+		4*time.Second + 2*time.Nanosecond,
+	}
+
+	for _, tt := range tests {
+		encodeExpected(t, tt.String(),
+			struct{ Dur time.Duration }{Dur: tt},
+			fmt.Sprintf("Dur = %q", tt), nil)
+	}
+}
+
 func encodeExpected(t *testing.T, label string, val interface{}, want string, wantErr error) {
 	t.Helper()
 
