@@ -89,6 +89,17 @@ type Marshaler interface {
 //
 // Go maps will be sorted alphabetically by key for deterministic output.
 //
+// The toml struct tag can be used to provide the key name; if omitted the
+// struct field name will be used. If the "omitempty" option is present the
+// following value will be skipped:
+//
+//   - arrays, slices, maps, and string with len of 0
+//   - struct with all zero values
+//   - bool false
+//
+// If omitzero is given all int and float types with a value of 0 will be
+// skipped.
+//
 // Encoding Go values without a corresponding TOML representation will return an
 // error. Examples of this includes maps with non-string keys, slices with nil
 // elements, embedded non-struct types, and nested slices containing maps or
@@ -213,12 +224,18 @@ func (enc *Encoder) eElement(rv reflect.Value) {
 		if err != nil {
 			encPanic(err)
 		}
+		if s == nil {
+			encPanic(errors.New("MarshalTOML returned nil and no error"))
+		}
 		enc.w.Write(s)
 		return
 	case encoding.TextMarshaler:
 		s, err := v.MarshalText()
 		if err != nil {
 			encPanic(err)
+		}
+		if s == nil {
+			encPanic(errors.New("MarshalText returned nil and no error"))
 		}
 		enc.writeQuoted(string(s))
 		return
@@ -534,7 +551,7 @@ func tomlTypeOfGo(rv reflect.Value) tomlType {
 	case reflect.Float32, reflect.Float64:
 		return tomlFloat
 	case reflect.Array, reflect.Slice:
-		if typeEqual(tomlHash, tomlArrayType(rv)) {
+		if isTableArray(rv) {
 			return tomlArrayHash
 		}
 		return tomlArray
@@ -582,29 +599,25 @@ func isMarshaler(rv reflect.Value) bool {
 	return false
 }
 
-// tomlArrayType returns the element type of a TOML array. The type returned
-// may be nil if it cannot be determined (e.g., a nil slice or a zero length
-// slize). This function may also panic if it finds a type that cannot be
-// expressed in TOML (such as nil elements, heterogeneous arrays or directly
-// nested arrays of tables).
-func tomlArrayType(rv reflect.Value) tomlType {
-	if isNil(rv) || !rv.IsValid() || rv.Len() == 0 {
-		return nil
+// isTableArray reports if all entries in the array or slice are a table.
+func isTableArray(arr reflect.Value) bool {
+	if isNil(arr) || !arr.IsValid() || arr.Len() == 0 {
+		return false
 	}
 
 	/// Don't allow nil.
-	rvlen := rv.Len()
-	for i := 1; i < rvlen; i++ {
-		if tomlTypeOfGo(rv.Index(i)) == nil {
+	for i := 0; i < arr.Len(); i++ {
+		if tomlTypeOfGo(arr.Index(i)) == nil {
 			encPanic(errArrayNilElement)
 		}
 	}
 
-	firstType := tomlTypeOfGo(rv.Index(0))
-	if firstType == nil {
-		encPanic(errArrayNilElement)
+	for i := 0; i < arr.Len(); i++ {
+		if !typeEqual(tomlHash, tomlTypeOfGo(arr.Index(i))) {
+			return false
+		}
 	}
-	return firstType
+	return true
 }
 
 type tagOptions struct {
@@ -649,6 +662,8 @@ func isEmpty(rv reflect.Value) bool {
 	switch rv.Kind() {
 	case reflect.Array, reflect.Slice, reflect.Map, reflect.String:
 		return rv.Len() == 0
+	case reflect.Struct:
+		return reflect.Zero(rv.Type()).Interface() == rv.Interface()
 	case reflect.Bool:
 		return !rv.Bool()
 	}
