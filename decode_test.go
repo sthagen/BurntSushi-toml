@@ -1,12 +1,15 @@
 package toml
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -430,38 +433,56 @@ func TestDecodeSizedInts(t *testing.T) {
 
 type NopUnmarshalTOML int
 
-func (NopUnmarshalTOML) UnmarshalTOML(p interface{}) error { return nil }
+func (n *NopUnmarshalTOML) UnmarshalTOML(p interface{}) error {
+	*n = 42
+	return nil
+}
 
 func TestDecodeTypes(t *testing.T) {
-	type mystr string
+	type (
+		mystr   string
+		myiface interface{}
+	)
 
 	for _, tt := range []struct {
-		v    interface{}
-		want string
+		v       interface{}
+		want    string
+		wantErr string
 	}{
-		{new(map[string]bool), ""},
-		{new(map[mystr]bool), ""},
-		{new(NopUnmarshalTOML), ""},
+		{new(map[string]bool), "&map[F:true]", ""},
+		{new(map[mystr]bool), "&map[F:true]", ""},
+		{new(NopUnmarshalTOML), "42", ""},
+		{new(map[interface{}]bool), "&map[F:true]", ""},
+		{new(map[myiface]bool), "&map[F:true]", ""},
 
-		{3, `toml: cannot decode to non-pointer "int"`},
-		{map[string]interface{}{}, `toml: cannot decode to non-pointer "map[string]interface {}"`},
+		{3, "", `toml: cannot decode to non-pointer "int"`},
+		{map[string]interface{}{}, "", `toml: cannot decode to non-pointer "map[string]interface {}"`},
 
-		{(*int)(nil), `toml: cannot decode to nil value of "*int"`},
-		{(*Unmarshaler)(nil), `toml: cannot decode to nil value of "*toml.Unmarshaler"`},
-		{nil, `toml: cannot decode to non-pointer <nil>`},
+		{(*int)(nil), "", `toml: cannot decode to nil value of "*int"`},
+		{(*Unmarshaler)(nil), "", `toml: cannot decode to nil value of "*toml.Unmarshaler"`},
+		{nil, "", `toml: cannot decode to non-pointer <nil>`},
 
-		{new(map[int]string), "toml: cannot decode to a map with non-string key type"},
-		{new(map[interface{}]string), "toml: cannot decode to a map with non-string key type"},
+		{new(map[int]string), "", "toml: cannot decode to a map with non-string key type"},
 
-		{new(struct{ F int }), `toml: line 1 (last key "F"): incompatible types: TOML value has type bool; destination has type integer`},
-		{new(map[string]int), `toml: line 1 (last key "F"): incompatible types: TOML value has type bool; destination has type integer`},
-		{new(int), `toml: cannot decode to type int`},
-		{new([]int), "toml: cannot decode to type []int"},
+		{new(struct{ F int }), "", `toml: line 1 (last key "F"): incompatible types: TOML value has type bool; destination has type integer`},
+		{new(map[string]int), "", `toml: line 1 (last key "F"): incompatible types: TOML value has type bool; destination has type integer`},
+		{new(int), "", `toml: cannot decode to type int`},
+		{new([]int), "", "toml: cannot decode to type []int"},
 	} {
 		t.Run(fmt.Sprintf("%T", tt.v), func(t *testing.T) {
 			_, err := Decode(`F = true`, tt.v)
-			if !errorContains(err, tt.want) {
-				t.Errorf("wrong error\nhave: %q\nwant: %q", err, tt.want)
+			if !errorContains(err, tt.wantErr) {
+				t.Fatalf("wrong error\nhave: %q\nwant: %q", err, tt.wantErr)
+			}
+
+			if err == nil {
+				have := fmt.Sprintf("%v", tt.v)
+				if n, ok := tt.v.(*NopUnmarshalTOML); ok {
+					have = fmt.Sprintf("%v", *n)
+				}
+				if have != tt.want {
+					t.Errorf("\nhave: %s\nwant: %s", have, tt.want)
+				}
 			}
 		})
 	}
@@ -993,6 +1014,129 @@ func TestMetaDotConflict(t *testing.T) {
 	}
 	if have != want {
 		t.Errorf("\nhave: %s\nwant: %s", have, want)
+	}
+}
+
+type (
+	Outer struct {
+		Int   *InnerInt
+		Enum  *Enum
+		Slice *InnerArrayString
+	}
+	Enum             int
+	InnerString      struct{ value string }
+	InnerInt         struct{ value int }
+	InnerBool        struct{ value bool }
+	InnerArrayString struct{ value []string }
+)
+
+const (
+	NoValue Enum = iota
+	OtherValue
+)
+
+func (e *Enum) Value() string {
+	switch *e {
+	case OtherValue:
+		return "OTHER_VALUE"
+	}
+	return ""
+}
+
+func (e *Enum) MarshalTOML() ([]byte, error) {
+	return []byte(`"` + e.Value() + `"`), nil
+}
+
+func (e *Enum) UnmarshalTOML(value interface{}) error {
+	sValue, ok := value.(string)
+	if !ok {
+		return fmt.Errorf("value %v is not a string type", value)
+	}
+	for _, enum := range []Enum{NoValue, OtherValue} {
+		if enum.Value() == sValue {
+			*e = enum
+			return nil
+		}
+	}
+	return errors.New("invalid enum value")
+}
+
+func (i *InnerInt) MarshalTOML() ([]byte, error) {
+	return []byte(strconv.Itoa(i.value)), nil
+}
+func (i *InnerInt) UnmarshalTOML(value interface{}) error {
+	iValue, ok := value.(int64)
+	if !ok {
+		return fmt.Errorf("value %v is not a int type", value)
+	}
+	i.value = int(iValue)
+	return nil
+}
+
+func (as *InnerArrayString) MarshalTOML() ([]byte, error) {
+	return []byte("[\"" + strings.Join(as.value, "\", \"") + "\"]"), nil
+}
+
+func (as *InnerArrayString) UnmarshalTOML(value interface{}) error {
+	if value != nil {
+		asValue, ok := value.([]interface{})
+		if !ok {
+			return fmt.Errorf("value %v is not a [] type", value)
+		}
+		as.value = []string{}
+		for _, value := range asValue {
+			as.value = append(as.value, value.(string))
+		}
+	}
+	return nil
+}
+
+// Test for #341
+func TestCustomEncode(t *testing.T) {
+	enum := OtherValue
+	outer := Outer{
+		Int:   &InnerInt{value: 10},
+		Enum:  &enum,
+		Slice: &InnerArrayString{value: []string{"text1", "text2"}},
+	}
+
+	var buf bytes.Buffer
+	err := NewEncoder(&buf).Encode(outer)
+	if err != nil {
+		t.Errorf("Encode failed: %s", err)
+	}
+
+	have := strings.TrimSpace(buf.String())
+	want := strings.ReplaceAll(strings.TrimSpace(`
+		Int = 10
+		Enum = "OTHER_VALUE"
+		Slice = ["text1", "text2"]
+	`), "\t", "")
+	if want != have {
+		t.Errorf("\nhave: %s\nwant: %s\n", have, want)
+	}
+}
+
+// Test for #341
+func TestCustomDecode(t *testing.T) {
+	var outer Outer
+	_, err := Decode(`
+		Int = 10
+		Enum = "OTHER_VALUE"
+		Slice = ["text1", "text2"]
+	`, &outer)
+	if err != nil {
+		t.Fatal(fmt.Sprintf("Decode failed: %s", err))
+	}
+
+	if outer.Int.value != 10 {
+		t.Errorf("\nhave:\n%v\nwant:\n%v\n", outer.Int.value, 10)
+	}
+	if *outer.Enum != OtherValue {
+		t.Errorf("\nhave:\n%v\nwant:\n%v\n", outer.Enum, OtherValue)
+	}
+	if fmt.Sprint(outer.Slice.value) != fmt.Sprint([]string{"text1", "text2"}) {
+		t.Errorf("\nhave:\n%v\nwant:\n%v\n", outer.Slice.value, []string{"text1", "text2"})
 	}
 }
 
