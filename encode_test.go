@@ -182,23 +182,33 @@ func TestEncodeOmitEmptyStruct(t *testing.T) {
 }
 
 func TestEncodeWithOmitEmpty(t *testing.T) {
+	type uncomparable struct {
+		Field []string `toml:"Field,omitempty"`
+	}
 	type simple struct {
-		Bool   bool              `toml:"bool,omitempty"`
-		String string            `toml:"string,omitempty"`
-		Array  [0]byte           `toml:"array,omitempty"`
-		Slice  []int             `toml:"slice,omitempty"`
-		Map    map[string]string `toml:"map,omitempty"`
-		Time   time.Time         `toml:"time,omitempty"`
+		Bool          bool              `toml:"bool,omitempty"`
+		String        string            `toml:"string,omitempty"`
+		Array         [0]byte           `toml:"array,omitempty"`
+		Slice         []int             `toml:"slice,omitempty"`
+		Map           map[string]string `toml:"map,omitempty"`
+		Time          time.Time         `toml:"time,omitempty"`
+		Uncomparable1 uncomparable      `toml:"uncomparable1,omitempty"`
+		Uncomparable2 uncomparable      `toml:"uncomparable2,omitempty"`
 	}
 
 	var v simple
-	encodeExpected(t, "fields with omitempty are omitted when empty", v, "", nil)
+	encodeExpected(t, "fields with omitempty are omitted when empty", v, `
+[uncomparable1]
+
+[uncomparable2]
+`, nil)
 	v = simple{
-		Bool:   true,
-		String: " ",
-		Slice:  []int{2, 3, 4},
-		Map:    map[string]string{"foo": "bar"},
-		Time:   time.Date(1985, 6, 18, 15, 16, 17, 0, time.UTC),
+		Bool:          true,
+		String:        " ",
+		Slice:         []int{2, 3, 4},
+		Map:           map[string]string{"foo": "bar"},
+		Time:          time.Date(1985, 6, 18, 15, 16, 17, 0, time.UTC),
+		Uncomparable2: uncomparable{[]string{"XXX"}},
 	}
 	expected := `bool = true
 string = " "
@@ -207,6 +217,11 @@ time = 1985-06-18T15:16:17Z
 
 [map]
   foo = "bar"
+
+[uncomparable1]
+
+[uncomparable2]
+  Field = ["XXX"]
 `
 	encodeExpected(t, "fields with omitempty are not omitted when non-empty",
 		v, expected, nil)
@@ -1132,8 +1147,8 @@ ArrayOfMixedSlices = [[1, 2], ["a", "b"]]
 
 func encodeExpected(t *testing.T, label string, val interface{}, want string, wantErr error) {
 	t.Helper()
-
 	t.Run(label, func(t *testing.T) {
+		t.Helper()
 		var buf bytes.Buffer
 		err := NewEncoder(&buf).Encode(val)
 		if err != wantErr {
