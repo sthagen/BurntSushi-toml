@@ -384,6 +384,7 @@ func (p *parser) valueArray(it item) (interface{}, tomlType) {
 		//
 		// Not entirely sure how to best store this; could use "key[0]",
 		// "key[1]" notation, or maybe store it on the Array type?
+		_ = types
 	}
 	return array, tomlArray
 }

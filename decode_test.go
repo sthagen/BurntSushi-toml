@@ -1126,7 +1126,7 @@ func TestCustomDecode(t *testing.T) {
 		Slice = ["text1", "text2"]
 	`, &outer)
 	if err != nil {
-		t.Fatal(fmt.Sprintf("Decode failed: %s", err))
+		t.Fatalf("Decode failed: %s", err)
 	}
 
 	if outer.Int.value != 10 {
