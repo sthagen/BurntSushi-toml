@@ -239,7 +239,28 @@ var metaTests = map[string]string{
 	`,
 }
 
+// TOML 1.0
 func TestToml(t *testing.T) {
+	runTomlTest(t, false)
+}
+
+// TOML 1.1
+func TestTomlNext(t *testing.T) {
+	toml.WithTomlNext(func() {
+		runTomlTest(t, true)
+	})
+}
+
+// Make sure TOML 1.1 fails by default for now.
+func TestTomlNextFails(t *testing.T) {
+	runTomlTest(t, true,
+		"valid/string/escape-esc",
+		"valid/datetime/no-seconds",
+		"valid/string/hex-escape",
+		"valid/inline-table/newline")
+}
+
+func runTomlTest(t *testing.T, includeNext bool, wantFail ...string) {
 	for k := range errorTests { // Make sure patterns are valid.
 		_, err := filepath.Match(k, "")
 		if err != nil {
@@ -292,15 +313,23 @@ func TestToml(t *testing.T) {
 				// https://github.com/BurntSushi/toml/issues/320
 				"invalid/datetime/time-no-leads",
 
-				// This test is fine, just doesn't deal well with empty output.
+				// These tests are fine, just doesn't deal well with empty output.
 				"valid/comment/noeol",
+				"valid/comment/nonascii",
 
-				// TODO: fix this.
+				// TODO: fix this; we allow appending to tables, but shouldn't.
 				"invalid/table/append-with-dotted*",
 				"invalid/inline-table/add",
 				"invalid/table/duplicate-key-dotted-table",
 				"invalid/table/duplicate-key-dotted-table2",
+				"invalid/spec/inline-table-2-0",
+				"invalid/spec/table-9-1",
+				"invalid/inline-table/nested_key_conflict",
+				"invalid/table/append-to-array-with-dotted-keys",
 			},
+		}
+		if includeNext {
+			r.Version = "next"
 		}
 
 		tests, err := r.Run()
@@ -308,9 +337,17 @@ func TestToml(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		failed := make(map[string]struct{})
 		for _, test := range tests.Tests {
 			t.Run(test.Path, func(t *testing.T) {
 				if test.Failed() {
+					for _, f := range wantFail {
+						if f == test.Path {
+							failed[test.Path] = struct{}{}
+							return
+						}
+					}
+
 					t.Fatalf("\nError:\n%s\n\nInput:\n%s\nOutput:\n%s\nWant:\n%s\n",
 						test.Failure, test.Input, test.Output, test.Want)
 					return
@@ -327,6 +364,12 @@ func TestToml(t *testing.T) {
 				}
 			})
 		}
+		for _, f := range wantFail {
+			if _, ok := failed[f]; !ok {
+				t.Errorf("expected test %q to fail but it didn't", f)
+			}
+		}
+
 		t.Logf("passed: %d; failed: %d; skipped: %d", tests.Passed, tests.Failed, tests.Skipped)
 	}
 

@@ -10,6 +10,8 @@ import (
 	"github.com/BurntSushi/toml/internal"
 )
 
+var tomlNext = false
+
 type parser struct {
 	lx         *lexer
 	context    Key      // Full key for the current hash in scope.
@@ -331,11 +333,17 @@ func (p *parser) valueFloat(it item) (interface{}, tomlType) {
 var dtTypes = []struct {
 	fmt  string
 	zone *time.Location
+	next bool
 }{
-	{time.RFC3339Nano, time.Local},
-	{"2006-01-02T15:04:05.999999999", internal.LocalDatetime},
-	{"2006-01-02", internal.LocalDate},
-	{"15:04:05.999999999", internal.LocalTime},
+	{time.RFC3339Nano, time.Local, false},
+	{"2006-01-02T15:04:05.999999999", internal.LocalDatetime, false},
+	{"2006-01-02", internal.LocalDate, false},
+	{"15:04:05.999999999", internal.LocalTime, false},
+
+	// tomlNext
+	{"2006-01-02T15:04Z07:00", time.Local, true},
+	{"2006-01-02T15:04", internal.LocalDatetime, true},
+	{"15:04", internal.LocalTime, true},
 }
 
 func (p *parser) valueDatetime(it item) (interface{}, tomlType) {
@@ -346,6 +354,9 @@ func (p *parser) valueDatetime(it item) (interface{}, tomlType) {
 		err error
 	)
 	for _, dt := range dtTypes {
+		if dt.next && !tomlNext {
+			continue
+		}
 		t, err = time.ParseInLocation(dt.fmt, it.val, dt.zone)
 		if err == nil {
 			ok = true
@@ -744,12 +755,23 @@ func (p *parser) replaceEscapes(it item, str string) string {
 		case 'r':
 			replaced = append(replaced, rune(0x000D))
 			r += 1
+		case 'e':
+			if tomlNext {
+				replaced = append(replaced, rune(0x001B))
+				r += 1
+			}
 		case '"':
 			replaced = append(replaced, rune(0x0022))
 			r += 1
 		case '\\':
 			replaced = append(replaced, rune(0x005C))
 			r += 1
+		case 'x':
+			if tomlNext {
+				escaped := p.asciiEscapeToUnicode(it, s[r+1:r+3])
+				replaced = append(replaced, escaped)
+				r += 3
+			}
 		case 'u':
 			// At this point, we know we have a Unicode escape of the form
 			// `uXXXX` at [r, r+5). (Because the lexer guarantees this

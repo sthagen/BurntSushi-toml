@@ -618,6 +618,9 @@ func lexInlineTableValue(lx *lexer) stateFn {
 	case isWhitespace(r):
 		return lexSkip(lx, lexInlineTableValue)
 	case isNL(r):
+		if tomlNext {
+			return lexSkip(lx, lexInlineTableValue)
+		}
 		return lx.errorPrevLine(errLexInlineTableNL{})
 	case r == '#':
 		lx.push(lexInlineTableValue)
@@ -640,6 +643,9 @@ func lexInlineTableValueEnd(lx *lexer) stateFn {
 	case isWhitespace(r):
 		return lexSkip(lx, lexInlineTableValueEnd)
 	case isNL(r):
+		if tomlNext {
+			return lexSkip(lx, lexInlineTableValueEnd)
+		}
 		return lx.errorPrevLine(errLexInlineTableNL{})
 	case r == '#':
 		lx.push(lexInlineTableValueEnd)
@@ -648,6 +654,9 @@ func lexInlineTableValueEnd(lx *lexer) stateFn {
 		lx.ignore()
 		lx.skip(isWhitespace)
 		if lx.peek() == '}' {
+			if tomlNext {
+				return lexInlineTableValueEnd
+			}
 			return lx.errorf("trailing comma not allowed in inline tables")
 		}
 		return lexInlineTableValue
@@ -770,8 +779,8 @@ func lexRawString(lx *lexer) stateFn {
 	}
 }
 
-// lexMultilineRawString consumes a raw string. Nothing can be escaped in such
-// a string. It assumes that the beginning ''' has already been consumed and
+// lexMultilineRawString consumes a raw string. Nothing can be escaped in such a
+// string. It assumes that the beginning triple-' has already been consumed and
 // ignored.
 func lexMultilineRawString(lx *lexer) stateFn {
 	r := lx.next()
@@ -828,6 +837,11 @@ func lexMultilineStringEscape(lx *lexer) stateFn {
 func lexStringEscape(lx *lexer) stateFn {
 	r := lx.next()
 	switch r {
+	case 'e':
+		if !tomlNext {
+			return lx.error(errLexEscape{r})
+		}
+		fallthrough
 	case 'b':
 		fallthrough
 	case 't':
@@ -846,12 +860,30 @@ func lexStringEscape(lx *lexer) stateFn {
 		fallthrough
 	case '\\':
 		return lx.pop()
+	case 'x':
+		if !tomlNext {
+			return lx.error(errLexEscape{r})
+		}
+		return lexHexEscape
 	case 'u':
 		return lexShortUnicodeEscape
 	case 'U':
 		return lexLongUnicodeEscape
 	}
 	return lx.error(errLexEscape{r})
+}
+
+func lexHexEscape(lx *lexer) stateFn {
+	var r rune
+	for i := 0; i < 2; i++ {
+		r = lx.next()
+		if !isHexadecimal(r) {
+			return lx.errorf(
+				`expected two hexadecimal digits after '\x', but got %q instead`,
+				lx.current())
+		}
+	}
+	return lx.pop()
 }
 
 func lexShortUnicodeEscape(lx *lexer) stateFn {
