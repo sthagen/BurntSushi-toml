@@ -1239,6 +1239,65 @@ ArrayOfMixedSlices = [[1, 2], ["a", "b"]]
 	}
 }
 
+func TestEncodeDoubleTags(t *testing.T) {
+	// TODO: this needs fixing; it shouldn't emit two 'a =' keys.
+	s := struct {
+		A int `toml:"a"`
+		B int `toml:"a"`
+		C int `toml:"c"`
+	}{1, 2, 3}
+	buf := new(strings.Builder)
+	err := NewEncoder(buf).Encode(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := `a = 1
+a = 2
+c = 3
+`
+	if want != buf.String() {
+		t.Errorf("\nhave: %s\nwant: %s\n", buf.String(), want)
+	}
+}
+
+type (
+	Doc1 struct{ N string }
+	Doc2 struct{ N string }
+)
+
+func (d Doc1) MarshalTOML() ([]byte, error) { return []byte(`marshal_toml = "` + d.N + `"`), nil }
+func (d Doc2) MarshalText() ([]byte, error) { return []byte(`marshal_text = "` + d.N + `"`), nil }
+
+// MarshalTOML and MarshalText on the top level type, rather than a field.
+func TestMarshalDoc(t *testing.T) {
+	t.Run("toml", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := NewEncoder(&buf).Encode(Doc1{"asd"})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		want := `marshal_toml = "asd"`
+		if want != buf.String() {
+			t.Errorf("\nhave: %s\nwant: %s\n", buf.String(), want)
+		}
+	})
+
+	t.Run("text", func(t *testing.T) {
+		var buf bytes.Buffer
+		err := NewEncoder(&buf).Encode(Doc2{"asd"})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		want := `"marshal_text = \"asd\""`
+		if want != buf.String() {
+			t.Errorf("\nhave: %s\nwant: %s\n", buf.String(), want)
+		}
+	})
+}
+
 func encodeExpected(t *testing.T, label string, val interface{}, want string, wantErr error) {
 	t.Helper()
 	t.Run(label, func(t *testing.T) {
