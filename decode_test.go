@@ -5,21 +5,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/BurntSushi/toml/internal"
 )
 
 func WithTomlNext(f func()) {
-	tomlNext = true
-	defer func() { tomlNext = false }()
+	os.Setenv("BURNTSUSHI_TOML_110", "")
+	defer func() { os.Unsetenv("BURNTSUSHI_TOML_110") }()
 	f()
 }
 
@@ -37,7 +38,7 @@ func TestDecodeReader(t *testing.T) {
 }
 
 func TestDecodeFile(t *testing.T) {
-	tmp, err := ioutil.TempFile("", "toml-")
+	tmp, err := os.CreateTemp("", "toml-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,6 +56,25 @@ func TestDecodeFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	have := fmt.Sprintf("%v %v %v", i, meta.Keys(), meta.Type("a"))
+	want := "{42} [a] Integer"
+	if have != want {
+		t.Errorf("\nhave: %s\nwant: %s", have, want)
+	}
+}
+
+func TestDecodeFS(t *testing.T) {
+	fsys := fstest.MapFS{
+		"test.toml": &fstest.MapFile{
+			Data: []byte("a = 42"),
+		},
+	}
+
+	var i struct{ A int }
+	meta, err := DecodeFS(fsys, "test.toml", &i)
+	if err != nil {
+		t.Fatal(err)
+	}
 	have := fmt.Sprintf("%v %v %v", i, meta.Keys(), meta.Type("a"))
 	want := "{42} [a] Integer"
 	if have != want {
@@ -1169,6 +1189,56 @@ func TestDecodeDoubleTags(t *testing.T) {
 	if want != have {
 		t.Errorf("\nhave: %s\nwant: %s\n", have, want)
 	}
+}
+
+func TestMetaKeys(t *testing.T) {
+	tests := []struct {
+		in   string
+		want []Key
+	}{
+		{"", []Key{}},
+		{"b=1\na=1", []Key{Key{"b"}, Key{"a"}}},
+		{"a.b=1\na.a=1", []Key{Key{"a", "b"}, Key{"a", "a"}}}, // TODO: should include "a"
+		{"[tbl]\na=1", []Key{Key{"tbl"}, Key{"tbl", "a"}}},
+		{"[tbl]\na.a=1", []Key{Key{"tbl"}, Key{"tbl", "a", "a"}}}, // TODO: should include "a.a"
+		{"tbl={a=1}", []Key{Key{"tbl"}, Key{"tbl", "a"}}},
+		{"tbl={a={b=1}}", []Key{Key{"tbl"}, Key{"tbl", "a"}, Key{"tbl", "a", "b"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run("", func(t *testing.T) {
+			var x interface{}
+			meta, err := Decode(tt.in, &x)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			have := meta.Keys()
+			if !reflect.DeepEqual(tt.want, have) {
+				t.Errorf("\nhave: %s\nwant: %s\n", have, tt.want)
+			}
+		})
+	}
+}
+
+func TestDecodeParallel(t *testing.T) {
+	doc, err := os.ReadFile("testdata/ja-JP.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := Unmarshal(doc, new(map[string]interface{}))
+			if err != nil {
+				t.Fatal(err)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // errorContains checks if the error message in have contains the text in

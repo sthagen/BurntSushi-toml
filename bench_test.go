@@ -1,12 +1,9 @@
-//go:build go1.16
-// +build go1.16
-
 package toml_test
 
 import (
 	"bytes"
 	"io/fs"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -53,6 +50,20 @@ func BenchmarkDecode(b *testing.B) {
 			}
 		})
 	}
+
+	b.Run("large-doc", func(b *testing.B) {
+		d, err := os.ReadFile("testdata/ja-JP.toml")
+		if err != nil {
+			b.Fatal(err)
+		}
+		doc := string(d)
+
+		b.ResetTimer()
+		for n := 0; n < b.N; n++ {
+			var val map[string]interface{}
+			toml.Decode(doc, &val)
+		}
+	})
 }
 
 func BenchmarkEncode(b *testing.B) {
@@ -66,7 +77,10 @@ func BenchmarkEncode(b *testing.B) {
 			}
 
 			// "next" version of TOML.
-			if path == "valid/string/escape-esc.toml" {
+			switch path {
+			case "valid/string/escape-esc.toml", "valid/datetime/no-seconds.toml",
+				"valid/string/hex-escape.toml", "valid/inline-table/newline.toml",
+				"valid/key/unicode.toml":
 				return nil
 			}
 
@@ -114,7 +128,7 @@ func BenchmarkEncode(b *testing.B) {
 }
 
 func BenchmarkExample(b *testing.B) {
-	d, err := ioutil.ReadFile("_example/example.toml")
+	d, err := os.ReadFile("_example/example.toml")
 	if err != nil {
 		b.Fatal(err)
 	}

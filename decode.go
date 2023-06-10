@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
+	"io/fs"
 	"math"
 	"os"
 	"reflect"
@@ -39,6 +39,17 @@ func Decode(data string, v interface{}) (MetaData, error) {
 // DecodeFile reads the contents of a file and decodes it with [Decode].
 func DecodeFile(path string, v interface{}) (MetaData, error) {
 	fp, err := os.Open(path)
+	if err != nil {
+		return MetaData{}, err
+	}
+	defer fp.Close()
+	return NewDecoder(fp).Decode(v)
+}
+
+// DecodeFS reads the contents of a file from [fs.FS] and decodes it with
+// [Decode].
+func DecodeFS(fsys fs.FS, path string, v interface{}) (MetaData, error) {
+	fp, err := fsys.Open(path)
 	if err != nil {
 		return MetaData{}, err
 	}
@@ -148,7 +159,7 @@ func (dec *Decoder) Decode(v interface{}) (MetaData, error) {
 
 	// TODO: parser should read from io.Reader? Or at the very least, make it
 	// read from []byte rather than string
-	data, err := ioutil.ReadAll(dec.r)
+	data, err := io.ReadAll(dec.r)
 	if err != nil {
 		return MetaData{}, err
 	}
@@ -248,7 +259,7 @@ func (md *MetaData) unify(data interface{}, rv reflect.Value) error {
 	case reflect.Bool:
 		return md.unifyBool(data, rv)
 	case reflect.Interface:
-		if rv.NumMethod() > 0 { // Only support empty interfaces are supported.
+		if rv.NumMethod() > 0 { /// Only empty interfaces are supported.
 			return md.e("unsupported type %s", rv.Type())
 		}
 		return md.unifyAnything(data, rv)
