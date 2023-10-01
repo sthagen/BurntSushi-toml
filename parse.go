@@ -2,6 +2,7 @@ package toml
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -323,7 +324,9 @@ func (p *parser) valueFloat(it item) (any, tomlType) {
 		p.panicItemf(it, "Invalid float %q: '.' must be followed by one or more digits", it.val)
 	}
 	val := strings.Replace(it.val, "_", "", -1)
-	if val == "+nan" || val == "-nan" { // Go doesn't support this, but TOML spec does.
+	signbit := false
+	if val == "+nan" || val == "-nan" {
+		signbit = val == "-nan"
 		val = "nan"
 	}
 	num, err := strconv.ParseFloat(val, 64)
@@ -333,6 +336,9 @@ func (p *parser) valueFloat(it item) (any, tomlType) {
 		} else {
 			p.panicItemf(it, "Invalid float value: %q", it.val)
 		}
+	}
+	if signbit {
+		num = math.Copysign(num, -1)
 	}
 	return num, p.typeOfPrimitive(it)
 }
@@ -366,6 +372,9 @@ func (p *parser) valueDatetime(it item) (any, tomlType) {
 		}
 		t, err = time.ParseInLocation(dt.fmt, it.val, dt.zone)
 		if err == nil {
+			if missingLeadingZero(it.val, dt.fmt) {
+				p.panicErr(it, errParseDate{it.val})
+			}
 			ok = true
 			break
 		}
@@ -376,16 +385,31 @@ func (p *parser) valueDatetime(it item) (any, tomlType) {
 	return t, p.typeOfPrimitive(it)
 }
 
+// Go's time.Parse() will accept numbers without a leading zero; there isn't any
+// way to require it. https://github.com/golang/go/issues/29911
+//
+// Depend on the fact that the separators (- and :) should always be at the same
+// location.
+func missingLeadingZero(d, l string) bool {
+	for i, c := range []byte(l) {
+		if c == '.' || c == 'Z' {
+			return false
+		}
+		if (c < '0' || c > '9') && d[i] != c {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *parser) valueArray(it item) (any, tomlType) {
 	p.setType(p.currentKey, tomlArray, it.pos)
 
 	var (
-		types []tomlType
-
-		// Initialize to a non-nil empty slice. This makes it consistent with
-		// how S = [] decodes into a non-nil slice inside something like struct
-		// { S []string }. See #338
-		array = []any{}
+		// Initialize to a non-nil slice to make it consistent with how S = []
+		// decodes into a non-nil slice inside something like struct { S
+		// []string }. See #338
+		array = make([]any, 0, 2)
 	)
 	for it = p.next(); it.typ != itemArrayEnd; it = p.next() {
 		if it.typ == itemCommentStart {
@@ -395,14 +419,13 @@ func (p *parser) valueArray(it item) (any, tomlType) {
 
 		val, typ := p.value(it, true)
 		array = append(array, val)
-		types = append(types, typ)
 
-		// XXX: types isn't used here, we need it to record the accurate type
+		// XXX: type isn't used here, we need it to record the accurate type
 		// information.
 		//
 		// Not entirely sure how to best store this; could use "key[0]",
 		// "key[1]" notation, or maybe store it on the Array type?
-		_ = types
+		_ = typ
 	}
 	return array, tomlArray
 }
@@ -516,7 +539,7 @@ func (p *parser) addContext(key Key, array bool) {
 
 	// Always start at the top level and drill down for our context.
 	hashContext := p.mapping
-	keyContext := make(Key, 0)
+	keyContext := make(Key, 0, len(key)-1)
 
 	// We only need implicit hashes for key[0:-1]
 	for _, k := range key[0 : len(key)-1] {
@@ -580,7 +603,7 @@ func (p *parser) setValue(key string, value any) {
 		tmpHash    any
 		ok         bool
 		hash       = p.mapping
-		keyContext Key
+		keyContext = make(Key, 0, len(p.context)+1)
 	)
 	for _, k := range p.context {
 		keyContext = append(keyContext, k)

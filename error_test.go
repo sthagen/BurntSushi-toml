@@ -43,7 +43,7 @@ At line 9, column 3-8:
       8 |   # This table conflicts with the previous table
       9 |   [fruit.variety]
              ^^^^^`},
-		{"datetime/trailing-t.toml", `
+		{"local-date/trailing-t.toml", `
 toml: error: invalid datetime: "2006-01-30T"
 
 At line 2, column 4-15:
@@ -104,14 +104,14 @@ func TestParseError(t *testing.T) {
 			 |     The maximum and minimum values are:
              |
 			 |         size   │ lowest         │ highest
-			 |         ───────┼────────────────┼──────────
+			 |         ───────┼────────────────┼──────────────
 			 |         int8   │ -128           │ 127
 			 |         int16  │ -32,768        │ 32,767
 			 |         int32  │ -2,147,483,648 │ 2,147,483,647
 			 |         int64  │ -9.2 × 10¹⁷    │ 9.2 × 10¹⁷
 			 |         uint8  │ 0              │ 255
-			 |         uint16 │ 0              │ 65535
-			 |         uint32 │ 0              │ 4294967295
+			 |         uint16 │ 0              │ 65,535
+			 |         uint32 │ 0              │ 4,294,967,295
 			 |         uint64 │ 0              │ 1.8 × 10¹⁸
              |
 			 |     int refers to int32 on 32-bit systems and int64 on 64-bit systems.
@@ -134,14 +134,14 @@ func TestParseError(t *testing.T) {
 			 |     The maximum and minimum values are:
              |
 			 |         size   │ lowest         │ highest
-			 |         ───────┼────────────────┼──────────
+			 |         ───────┼────────────────┼──────────────
 			 |         int8   │ -128           │ 127
 			 |         int16  │ -32,768        │ 32,767
 			 |         int32  │ -2,147,483,648 │ 2,147,483,647
 			 |         int64  │ -9.2 × 10¹⁷    │ 9.2 × 10¹⁷
 			 |         uint8  │ 0              │ 255
-			 |         uint16 │ 0              │ 65535
-			 |         uint32 │ 0              │ 4294967295
+			 |         uint16 │ 0              │ 65,535
+			 |         uint32 │ 0              │ 4,294,967,295
 			 |         uint64 │ 0              │ 1.8 × 10¹⁸
              |
 			 |     int refers to int32 on 32-bit systems and int64 on 64-bit systems.
@@ -165,14 +165,14 @@ func TestParseError(t *testing.T) {
             |     The maximum and minimum values are:
             |
             |         size   │ lowest         │ highest
-            |         ───────┼────────────────┼──────────
+            |         ───────┼────────────────┼──────────────
             |         int8   │ -128           │ 127
             |         int16  │ -32,768        │ 32,767
             |         int32  │ -2,147,483,648 │ 2,147,483,647
             |         int64  │ -9.2 × 10¹⁷    │ 9.2 × 10¹⁷
             |         uint8  │ 0              │ 255
-            |         uint16 │ 0              │ 65535
-            |         uint32 │ 0              │ 4294967295
+            |         uint16 │ 0              │ 65,535
+            |         uint32 │ 0              │ 4,294,967,295
             |         uint64 │ 0              │ 1.8 × 10¹⁸
             |
             |     int refers to int32 on 32-bit systems and int64 on 64-bit systems.
@@ -264,5 +264,143 @@ func TestParseError(t *testing.T) {
 				t.Fatalf("\nwant:\n%s\nhave:\n%s", tt.err, have)
 			}
 		})
+	}
+}
+
+type Enum1 uint8
+
+func (n *Enum1) UnmarshalText(text []byte) error {
+	switch t := strings.TrimSpace(string(text)); t {
+	case "ok":
+		*n = 1
+	default:
+		return fmt.Errorf("invalid value: %q", t)
+	}
+	return nil
+}
+
+// Make sure custom types are wrapped in ParseError with correct location.
+func TestUnmarshalTypeError(t *testing.T) {
+	var c struct {
+		K1 string `toml:"k1"`
+		K2 Enum1  `toml:"k2"`
+		K3 Enum1  `toml:"k3"`
+	}
+	_, err := toml.Decode("k1 = 'asd'\nk2 = 'ok'\nk3 = 'invalid'\nk4 = 'ok'", &c)
+	if err == nil {
+		t.Fatal("error is nil")
+	}
+	var pErr toml.ParseError
+	if !errors.As(err, &pErr) {
+		t.Fatalf("not a ParseError: %#v", err)
+	}
+
+	want := `toml: error: invalid value: "invalid"
+
+At line 3, column 6-13:
+
+      1 | k1 = 'asd'
+      2 | k2 = 'ok'
+      3 | k3 = 'invalid'
+                ^^^^^^^
+`
+
+	if have := pErr.ErrorWithUsage(); have != want {
+		t.Errorf("\nwant:\n%s\nhave:\n%s", want, have)
+	}
+}
+
+type Enum2 uint8
+
+func (n *Enum2) UnmarshalTOML(text any) error {
+	switch t := strings.TrimSpace(text.(string)); t {
+	case "ok":
+		*n = 1
+	default:
+		return fmt.Errorf("invalid value: %q", t)
+	}
+	return nil
+}
+
+func TestMarhsalError(t *testing.T) {
+	var c struct {
+		K1 string `toml:"k1"`
+		K2 Enum2  `toml:"k2"`
+		K3 Enum2  `toml:"k3"`
+	}
+	_, err := toml.Decode("k1 = 'asd'\nk2 = 'ok'\nk3 = 'invalid'\nk4 = 'ok'", &c)
+	if err == nil {
+		t.Fatal("error is nil")
+	}
+	var pErr toml.ParseError
+	if !errors.As(err, &pErr) {
+		t.Fatalf("not a ParseError: %#v", err)
+	}
+
+	want := `toml: error: invalid value: "invalid"
+
+At line 3, column 6-13:
+
+      1 | k1 = 'asd'
+      2 | k2 = 'ok'
+      3 | k3 = 'invalid'
+                ^^^^^^^
+`
+
+	if have := pErr.ErrorWithUsage(); have != want {
+		t.Errorf("\nwant:\n%s\nhave:\n%s", want, have)
+	}
+}
+
+func TestErrorIndent(t *testing.T) {
+	getErr := func(t *testing.T, tml string) toml.ParseError {
+		var m map[string]any
+		_, err := toml.Decode(tml, &m)
+		if err == nil {
+			t.Fatal(err)
+		}
+		var pErr toml.ParseError
+		if !errors.As(err, &pErr) {
+			t.Fatalf("not a ParseError: %#v", err)
+		}
+		return pErr
+	}
+
+	err := getErr(t, "\tspaces = xxx")
+	want := `toml: error: expected value but found "xxx" instead
+
+At line 1, column 10-13:
+
+      1 |         spaces = xxx
+                           ^^^
+`
+
+	if have := err.ErrorWithUsage(); have != want {
+		t.Errorf("\nwant:\n%s\nhave:\n%s", want, have)
+	}
+
+	err = getErr(t, "\tspaces\t=\txxx")
+	want = `toml: error: expected value but found "xxx" instead
+
+At line 1, column 10-13:
+
+      1 |         spaces  =       xxx
+                                  ^^^
+`
+	if have := err.ErrorWithUsage(); have != want {
+		t.Errorf("\nwant:\n%s\nhave:\n%s", want, have)
+	}
+
+	err = getErr(t, "\txxx \t = \t 1\n\tspaces\t=\txxx")
+	want = `toml: error: expected value but found "xxx" instead
+
+At line 2, column 10-13:
+
+      1 |         xxx      =       1
+      2 |         spaces  =       xxx
+                                  ^^^
+`
+	if have := err.ErrorWithUsage(); have != want {
+		t.Errorf("\nwant:\n%s\nhave:\n%s", want, have)
 	}
 }

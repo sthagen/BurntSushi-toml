@@ -168,7 +168,7 @@ func TestDecodeErrors(t *testing.T) {
 		{
 			&struct{ V float32 }{},
 			`V = 999999999999999`,
-			`toml: line 1 (last key "V"): 999999999999999 is out of range for float32`,
+			`toml: line 1 (last key "V"): 999999999999999 is out of the safe float32 range`,
 		},
 		{
 			&struct{ V string }{},
@@ -198,7 +198,7 @@ func TestDecodeErrors(t *testing.T) {
 		{
 			&struct{ V struct{ N float32 } }{},
 			`V.N = 999999999999999`,
-			`toml: line 1 (last key "V.N"): 999999999999999 is out of range for float32`,
+			`toml: line 1 (last key "V.N"): 999999999999999 is out of the safe float32 range`,
 		},
 		{
 			&struct{ V struct{ N string } }{},
@@ -225,13 +225,15 @@ func TestDecodeErrors(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		_, err := Decode(tt.toml, tt.s)
-		if err == nil {
-			t.Fatal("err is nil")
-		}
-		if err.Error() != tt.wantErr {
-			t.Errorf("\nhave: %q\nwant: %q", err, tt.wantErr)
-		}
+		t.Run("", func(t *testing.T) {
+			_, err := Decode(tt.toml, tt.s)
+			if err == nil {
+				t.Fatal("err is nil")
+			}
+			if err.Error() != tt.wantErr {
+				t.Errorf("\nhave: %q\nwant: %q", err, tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -416,10 +418,78 @@ func TestDecodeFloatOverflow(t *testing.T) {
 			if tt.overflow && err == nil {
 				t.Fatal("expected error, but err is nil")
 			}
-			if (tt.overflow && !errorContains(err, "out of range")) || (!tt.overflow && err != nil) {
-				t.Fatalf("unexpected error:\n%v", err)
+			if (tt.overflow && !errorContains(err, "out of the safe float") && !errorContains(err, "out of range")) || (!tt.overflow && err != nil) {
+				t.Fatalf("unexpected error:\n%T: %[1]v", err)
 			}
 		})
+	}
+}
+
+func TestDecodeSignbit(t *testing.T) {
+	var m struct {
+		N1, N2   float64
+		I1, I2   float64
+		Z1, Z2   float64
+		ZF1, ZF2 float64
+	}
+	_, err := Decode(`
+n1 = nan
+n2 = -nan
+i1 = inf
+i2 = -inf
+z1 = 0
+z2 = -0
+zf1 = 0.0
+zf2 = -0.0
+`, &m)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if h := fmt.Sprintf("%v %v", m.N1, math.Signbit(m.N1)); h != "NaN false" {
+		t.Error("N1:", h)
+	}
+	if h := fmt.Sprintf("%v %v", m.I1, math.Signbit(m.I1)); h != "+Inf false" {
+		t.Error("I1:", h)
+	}
+	if h := fmt.Sprintf("%v %v", m.Z1, math.Signbit(m.Z1)); h != "0 false" {
+		t.Error("Z1:", h)
+	}
+	if h := fmt.Sprintf("%v %v", m.ZF1, math.Signbit(m.ZF1)); h != "0 false" {
+		t.Error("ZF1:", h)
+	}
+
+	if h := fmt.Sprintf("%v %v", m.N2, math.Signbit(m.N2)); h != "NaN true" {
+		t.Error("N2:", h)
+	}
+	if h := fmt.Sprintf("%v %v", m.I2, math.Signbit(m.I2)); h != "-Inf true" {
+		t.Error("I2:", h)
+	}
+	if h := fmt.Sprintf("%v %v", m.Z2, math.Signbit(m.Z2)); h != "0 false" { // Correct: -0 is same as 0
+		t.Error("Z2:", h)
+	}
+	if h := fmt.Sprintf("%v %v", m.ZF2, math.Signbit(m.ZF2)); h != "-0 true" {
+		t.Error("ZF2:", h)
+	}
+
+	buf := new(bytes.Buffer)
+	err = NewEncoder(buf).Encode(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := strings.ReplaceAll(`
+		N1 = nan
+		N2 = -nan
+		I1 = inf
+		I2 = -inf
+		Z1 = 0.0
+		Z2 = 0.0
+		ZF1 = 0.0
+		ZF2 = -0.0
+	`, "\t", "")[1:]
+	if buf.String() != want {
+		t.Errorf("\nwant:\n%s\nhave:\n%s", want, buf.String())
 	}
 }
 
