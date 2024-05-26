@@ -37,7 +37,7 @@ At line 1, column 23:
 		{"array/tables-2.toml", `
 toml: error: Key 'fruit.variety' has already been defined.
 
-At line 9, column 3-8:
+At line 9, column 4-8:
 
       7 | 
       8 |   # This table conflicts with the previous table
@@ -46,13 +46,28 @@ At line 9, column 3-8:
 		{"local-date/trailing-t.toml", `
 toml: error: invalid datetime: "2006-01-30T"
 
-At line 2, column 4-15:
+At line 2, column 5-15:
 
       1 | # Date cannot end with trailing T
       2 | d = 2006-01-30T
               ^^^^^^^^^^^`},
-	}
 
+		{"key/without-value-1.toml", `
+toml: error: expected '.' or '=', but got '\n' instead
+
+At line 1, column 4:
+
+      1 | key
+             ^`},
+		// Position looks wonky, but test has trailing space, so it's correct.
+		{"key/without-value-2.toml", `
+toml: error: expected value but found '\n' instead
+
+At line 1, column 7:
+
+      1 | key = 
+                ^`},
+	}
 	fsys := tomltest.EmbeddedTests()
 	for _, tt := range tests {
 		t.Run(tt.test, func(t *testing.T) {
@@ -92,7 +107,7 @@ func TestParseError(t *testing.T) {
 			"Int = 200",
 			`| toml: error: 200 is out of range for int8
 			 |
-			 | At line 1, column 6-9:
+			 | At line 1, column 7-9:
 			 |
 			 |       1 | Int = 200
 			 |                 ^^^
@@ -122,7 +137,7 @@ func TestParseError(t *testing.T) {
 			fmt.Sprintf("Int = %d", uint64(math.MaxInt64+1)),
 			`| toml: error: 9223372036854775808 is out of range for int64
 			 |
-			 | At line 1, column 6-25:
+			 | At line 1, column 7-25:
 			 |
 			 |       1 | Int = 9223372036854775808
 			 |                 ^^^^^^^^^^^^^^^^^^^
@@ -153,7 +168,7 @@ func TestParseError(t *testing.T) {
 			`
             | toml: error: 1.1e+99 is out of range for float32
             |
-            | At line 1, column 8-14:
+            | At line 1, column 9-14:
             |
             |       1 | Float = 1.1e99
             |                   ^^^^^^
@@ -185,7 +200,7 @@ func TestParseError(t *testing.T) {
 			`
 			| toml: error: invalid duration: "99 bottles"
 			|
-			| At line 1, column 5-15:
+			| At line 1, column 6-15:
 			|
 			|       1 | D = "99 bottles"
 			|                ^^^^^^^^^^
@@ -211,7 +226,7 @@ func TestParseError(t *testing.T) {
 			`
             | toml: error: invalid datetime: "2006-01-99"
             |
-            | At line 1, column 4-14:
+            | At line 1, column 5-14:
             |
             |       1 | D = 2006-01-99
             |               ^^^^^^^^^^
@@ -297,7 +312,7 @@ func TestUnmarshalTypeError(t *testing.T) {
 
 	want := `toml: error: invalid value: "invalid"
 
-At line 3, column 6-13:
+At line 3, column 7-13:
 
       1 | k1 = 'asd'
       2 | k2 = 'ok'
@@ -339,7 +354,7 @@ func TestMarhsalError(t *testing.T) {
 
 	want := `toml: error: invalid value: "invalid"
 
-At line 3, column 6-13:
+At line 3, column 7-13:
 
       1 | k1 = 'asd'
       2 | k2 = 'ok'
@@ -369,7 +384,7 @@ func TestErrorIndent(t *testing.T) {
 	err := getErr(t, "\tspaces = xxx")
 	want := `toml: error: expected value but found "xxx" instead
 
-At line 1, column 10-13:
+At line 1, column 11-13:
 
       1 |         spaces = xxx
                            ^^^
@@ -382,7 +397,7 @@ At line 1, column 10-13:
 	err = getErr(t, "\tspaces\t=\txxx")
 	want = `toml: error: expected value but found "xxx" instead
 
-At line 1, column 10-13:
+At line 1, column 11-13:
 
       1 |         spaces  =       xxx
                                   ^^^
@@ -394,7 +409,7 @@ At line 1, column 10-13:
 	err = getErr(t, "\txxx \t = \t 1\n\tspaces\t=\txxx")
 	want = `toml: error: expected value but found "xxx" instead
 
-At line 2, column 10-13:
+At line 2, column 11-13:
 
       1 |         xxx      =       1
       2 |         spaces  =       xxx
