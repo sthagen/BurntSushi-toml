@@ -275,7 +275,9 @@ func (lx *lexer) errorPos(start, length int, err error) stateFn {
 func (lx *lexer) errorf(format string, values ...any) stateFn {
 	if lx.atEOF {
 		pos := lx.getPos()
-		pos.Line--
+		if lx.pos >= 1 && lx.input[lx.pos-1] == '\n' {
+			pos.Line--
+		}
 		pos.Len = 1
 		pos.Start = lx.pos - 1
 		lx.items <- item{typ: itemError, pos: pos, err: fmt.Errorf(format, values...)}
@@ -1117,7 +1119,7 @@ func lexBaseNumberOrDate(lx *lexer) stateFn {
 	case 'x':
 		r = lx.peek()
 		if !isHex(r) {
-			lx.errorf("not a hexidecimal number: '%s%c'", lx.current(), r)
+			lx.errorf("not a hexadecimal number: '%s%c'", lx.current(), r)
 		}
 		return lexHexInteger
 	}

@@ -149,7 +149,7 @@ func TestEncodeOmitEmptyStruct(t *testing.T) {
 }
 
 func TestEncodeOmitEmpty(t *testing.T) {
-	type compareable struct {
+	type comparable struct {
 		Bool bool `toml:"bool,omitempty"`
 	}
 	type uncomparable struct {
@@ -166,8 +166,8 @@ func TestEncodeOmitEmpty(t *testing.T) {
 		Slice               []int              `toml:"slice,omitempty"`
 		Map                 map[string]string  `toml:"map,omitempty"`
 		Time                time.Time          `toml:"time,omitempty"`
-		Compareable1        compareable        `toml:"compareable1,omitempty"`
-		Compareable2        compareable        `toml:"compareable2,omitempty"`
+		Comparable1         comparable         `toml:"comparable1,omitempty"`
+		Comparable2         comparable         `toml:"comparable2,omitempty"`
 		Uncomparable1       uncomparable       `toml:"uncomparable1,omitempty"`
 		Uncomparable2       uncomparable       `toml:"uncomparable2,omitempty"`
 		NestedUncomparable1 nestedUncomparable `toml:"nesteduncomparable1,omitempty"`
@@ -182,7 +182,7 @@ func TestEncodeOmitEmpty(t *testing.T) {
 		Slice:               []int{2, 3, 4},
 		Map:                 map[string]string{"foo": "bar"},
 		Time:                time.Date(1985, 6, 18, 15, 16, 17, 0, time.UTC),
-		Compareable2:        compareable{true},
+		Comparable2:         comparable{true},
 		Uncomparable2:       uncomparable{[]string{"XXX"}},
 		NestedUncomparable1: nestedUncomparable{uncomparable{[]string{"XXX"}}, false},
 		NestedUncomparable2: nestedUncomparable{uncomparable{}, true},
@@ -195,7 +195,7 @@ time = 1985-06-18T15:16:17Z
 [map]
   foo = "bar"
 
-[compareable2]
+[comparable2]
   bool = true
 
 [uncomparable2]
@@ -836,6 +836,17 @@ func TestEncodeJSONNumber(t *testing.T) {
 	}
 }
 
+type (
+	StructA struct{ StructB }
+	StructB struct{ StructC }
+	StructC struct{ StructD }
+	StructD struct {
+		FieldD1 string
+		FieldD2 string
+		FieldD3 string
+	}
+)
+
 func TestEncode(t *testing.T) {
 	type (
 		Embedded struct {
@@ -843,6 +854,10 @@ func TestEncode(t *testing.T) {
 		}
 		NonStruct int
 		MyInt     int
+		IntAndMap struct {
+			I int
+			M map[string]int
+		}
 	)
 
 	date := time.Date(2014, 5, 11, 19, 30, 40, 0, time.UTC)
@@ -1114,6 +1129,20 @@ ArrayOfMixedSlices = [[1, 2], ["a", "b"]]
 			}{struct{ Embedded }{Embedded{1}}},
 			wantOutput: "[_struct]\n  _int = 1\n",
 		},
+		"deeply nested embedded struct": { // #430
+			input: StructA{
+				StructB: StructB{
+					StructC: StructC{
+						StructD: StructD{
+							FieldD1: "V1",
+							FieldD2: "V2",
+							FieldD3: "V3",
+						},
+					},
+				},
+			},
+			wantOutput: "FieldD1 = \"V1\"\nFieldD2 = \"V2\"\nFieldD3 = \"V3\"\n",
+		},
 		"nested embedded *struct": {
 			input: struct {
 				Struct struct{ *Embedded } `toml:"_struct"`
@@ -1203,6 +1232,25 @@ ArrayOfMixedSlices = [[1, 2], ["a", "b"]]
 				[][]struct{ Int int }{{{1}}, {{2}}, {{3}}},
 			},
 			wantOutput: "Slices = [[{Int = 1}], [{Int = 2}], [{Int = 3}]]",
+		},
+
+		"table in array": {
+			input: struct {
+				A []IntAndMap
+			}{A: []IntAndMap{
+				{I: 1, M: map[string]int{"c": 2}},
+			}},
+			wantOutput: "[[A]]\n  I = 1\n  [A.M]\n    c = 2",
+		},
+
+		"table in double array": {
+			input: struct {
+				A [][]IntAndMap
+			}{A: [][]IntAndMap{{{
+				I: 1,
+				M: map[string]int{"c": 2},
+			}}}},
+			wantOutput: `A = [[{I = 1, M = {c = 2}}]]`,
 		},
 	}
 	for label, test := range tests {

@@ -440,8 +440,6 @@ func (enc *Encoder) eMap(key Key, rv reflect.Value, inline bool) {
 	}
 }
 
-const is32Bit = (32 << (^uint(0) >> 63)) == 32
-
 func pointerTo(t reflect.Type) reflect.Type {
 	if t.Kind() == reflect.Ptr {
 		return pointerTo(t.Elem())
@@ -476,15 +474,14 @@ func (enc *Encoder) eStruct(key Key, rv reflect.Value, inline bool) {
 
 			frv := eindirect(rv.Field(i))
 
-			if is32Bit {
-				// Copy so it works correct on 32bit archs; not clear why this
-				// is needed. See #314, and https://www.reddit.com/r/golang/comments/pnx8v4
-				// This also works fine on 64bit, but 32bit archs are somewhat
-				// rare and this is a wee bit faster.
-				copyStart := make([]int, len(start))
-				copy(copyStart, start)
-				start = copyStart
-			}
+			// Need to make a copy because ... ehm, I don't know why... I guess
+			// allocating a new array can cause it to fail(?)
+			//
+			// Done for: https://github.com/BurntSushi/toml/issues/430
+			// Previously only on 32bit for: https://github.com/BurntSushi/toml/issues/314
+			copyStart := make([]int, len(start))
+			copy(copyStart, start)
+			start = copyStart
 
 			// Treat anonymous struct fields with tag names as though they are
 			// not anonymous, like encoding/json does.
@@ -506,7 +503,7 @@ func (enc *Encoder) eStruct(key Key, rv reflect.Value, inline bool) {
 	}
 	addFields(rt, rv, nil)
 
-	writeFields := func(fields [][]int) {
+	writeFields := func(fields [][]int, totalFields int) {
 		for _, fieldIndex := range fields {
 			fieldType := rt.FieldByIndex(fieldIndex)
 			fieldVal := rv.FieldByIndex(fieldIndex)
@@ -536,7 +533,7 @@ func (enc *Encoder) eStruct(key Key, rv reflect.Value, inline bool) {
 
 			if inline {
 				enc.writeKeyValue(Key{keyName}, fieldVal, true)
-				if fieldIndex[0] != len(fields)-1 {
+				if fieldIndex[0] != totalFields-1 {
 					enc.wf(", ")
 				}
 			} else {
@@ -548,8 +545,10 @@ func (enc *Encoder) eStruct(key Key, rv reflect.Value, inline bool) {
 	if inline {
 		enc.wf("{")
 	}
-	writeFields(fieldsDirect)
-	writeFields(fieldsSub)
+
+	l := len(fieldsDirect) + len(fieldsSub)
+	writeFields(fieldsDirect, l)
+	writeFields(fieldsSub, l)
 	if inline {
 		enc.wf("}")
 	}
