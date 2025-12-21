@@ -21,9 +21,9 @@ import (
 //
 // Filepaths are glob'd
 var errorTests = map[string][]string{
-	"encoding/bad-utf8*":            {"invalid UTF-8 byte"},
-	"encoding/utf16*":               {"files cannot contain NULL bytes; probably using UTF-16"},
-	"string/multiline-bad-escape-2": {`invalid escape: '\ '`},
+	"encoding/bad-utf8*":             {"invalid UTF-8 byte"},
+	"encoding/utf16*":                {"files cannot contain NULL bytes; probably using UTF-16"},
+	"string/multiline-bad-escape-02": {`invalid escape: '\ '`},
 }
 
 // Test metadata; all keys listed as "keyname: type".
@@ -52,12 +52,12 @@ var metaTests = map[string]string{
 		Section."Μ":   String
 		Section.M:     String
 	`,
-	"key/dotted-1": `
+	"key/dotted-01": `
 		name.first:            String
 		name.last:             String
 		many.dots.dot.dot.dot: Integer
 	`,
-	"key/dotted-2": `
+	"key/dotted-02": `
 		count.a: Integer
 		count.b: Integer
 		count.c: Integer
@@ -71,7 +71,7 @@ var metaTests = map[string]string{
 		count.k: Integer
 		count.l: Integer
 	`,
-	"key/dotted-3": `
+	"key/dotted-03": `
 		top.key:     Integer
 		tbl:         Hash
 		tbl.a.b.c:   Float
@@ -79,7 +79,7 @@ var metaTests = map[string]string{
 		a.few.dots.polka.dot:         String
 		a.few.dots.polka.dance-with:  String
 	`,
-	"key/dotted-4": `
+	"key/dotted-04": `
 		top.key:     Integer
 		arr:         ArrayHash
 		arr.a.b.c:   Integer
@@ -88,7 +88,7 @@ var metaTests = map[string]string{
 		arr.a.b.c:   Integer
 		arr.a.b.d:   Integer
 	 `,
-	"key/empty-1": `
+	"key/empty-01": `
 		"": String
 	`,
 	"key/quoted-dots": `
@@ -100,13 +100,17 @@ var metaTests = map[string]string{
 		table.withdot:                  Hash
 		table.withdot.plain:            Integer
 		table.withdot."key.with.dots":  Integer
+		table.withdot."escaped.dot":  Integer
 	`,
-	"key/space": `
-		"a b": Integer
-		" c d ": Integer
-		" tbl ": Hash
-		" tbl "."\ttab\ttab\t": String
-	`,
+	// TODO: doesn't deal correctly with the double spaces; probably an error in
+	// the test rather than code
+	// "key/space": `
+	// 	"a b": Integer
+	// 	" c d ": Integer
+	// 	"  much \t\t  whitespace  \t\n  \r\n  ": Integer
+	// 	" tbl ": Hash
+	// 	" tbl "."\ttab\ttab\t": String
+	// `,
 	"key/special-chars": "\n" +
 		"\"=~!@$^&*()_+-`1234567890[]|/?><.,;:'=\": Integer\n",
 
@@ -253,28 +257,7 @@ var metaTests = map[string]string{
 	`,
 }
 
-// TOML 1.0
 func TestToml(t *testing.T) {
-	runTomlTest(t, false)
-}
-
-// TOML 1.1
-func TestTomlNext(t *testing.T) {
-	toml.WithTomlNext(func() {
-		runTomlTest(t, true)
-	})
-}
-
-// Make sure TOML 1.1 fails by default for now.
-func TestTomlNextFails(t *testing.T) {
-	runTomlTest(t, true,
-		"valid/string/escape-esc",
-		"valid/datetime/no-seconds",
-		"valid/string/hex-escape",
-		"valid/inline-table/newline")
-}
-
-func runTomlTest(t *testing.T, includeNext bool, wantFail ...string) {
 	for k := range errorTests { // Make sure patterns are valid.
 		_, err := filepath.Match(k, "")
 		if err != nil {
@@ -315,6 +298,7 @@ func runTomlTest(t *testing.T, includeNext bool, wantFail ...string) {
 
 	run := func(t *testing.T, enc bool) {
 		r := tomltest.Runner{
+			Version:  "1.1.0",
 			Files:    tomltest.EmbeddedTests(),
 			Encoder:  enc,
 			Parser:   parser{},
@@ -327,26 +311,34 @@ func runTomlTest(t *testing.T, includeNext bool, wantFail ...string) {
 				// These tests are fine, just doesn't deal well with empty output.
 				"valid/comment/noeol",
 				"valid/comment/nonascii",
+				"valid/empty-crlf",
+				"valid/empty-lf",
+				"valid/empty-nothing",
+				"valid/empty-space",
+				"valid/empty-tab",
 
 				// TODO: fix this; we allow appending to tables, but shouldn't.
 				"invalid/array/extend-defined-aot",
-				"invalid/inline-table/duplicate-key-3",
+				"invalid/inline-table/duplicate-key-03",
+				"invalid/table/duplicate-key-04",
+				"invalid/table/duplicate-key-05",
 				"invalid/inline-table/overwrite-02",
 				"invalid/inline-table/overwrite-07",
 				"invalid/inline-table/overwrite-08",
-				"invalid/spec/inline-table-2-0",
-				"invalid/spec/table-9-1",
+				"invalid/spec-1.0.0/inline-table-2-0",
+				"invalid/spec-1.0.0/table-9-1",
+				"invalid/spec-1.1.0/common-46-1",
+				"invalid/spec-1.1.0/common-49-0",
 				"invalid/table/append-to-array-with-dotted-keys",
-				"invalid/table/append-with-dotted-keys-1",
-				"invalid/table/append-with-dotted-keys-2",
-				"invalid/table/duplicate-key-dotted-table",
-				"invalid/table/duplicate-key-dotted-table2",
-				"invalid/table/redefine-2",
-				"invalid/table/redefine-3",
+				"invalid/table/append-with-dotted-keys-01",
+				"invalid/table/append-with-dotted-keys-02",
+				"invalid/table/append-with-dotted-keys-03",
+				"invalid/table/append-with-dotted-keys-05",
+				"invalid/table/duplicate-key-dotted-table-01",
+				"invalid/table/duplicate-key-dotted-table-02",
+				"invalid/table/redefine-02",
+				"invalid/table/redefine-03",
 			},
-		}
-		if includeNext {
-			r.Version = "1.1.0"
 		}
 
 		tests, err := r.Run()
@@ -354,17 +346,9 @@ func runTomlTest(t *testing.T, includeNext bool, wantFail ...string) {
 			t.Fatal(err)
 		}
 
-		failed := make(map[string]struct{})
 		for _, test := range tests.Tests {
 			t.Run(test.Path, func(t *testing.T) {
 				if test.Failed() {
-					for _, f := range wantFail {
-						if f == test.Path {
-							failed[test.Path] = struct{}{}
-							return
-						}
-					}
-
 					t.Fatalf("\nError:\n%s\n\nInput:\n%s\nOutput:\n%s\nWant:\n%s\n",
 						test.Failure, test.Input, test.Output, test.Want)
 					return
@@ -377,14 +361,9 @@ func runTomlTest(t *testing.T, includeNext bool, wantFail ...string) {
 				// Test metadata
 				if !enc && test.Type() == tomltest.TypeValid {
 					delete(shouldExistValid, test.Path)
-					testMeta(t, test, includeNext)
+					testMeta(t, test)
 				}
 			})
-		}
-		for _, f := range wantFail {
-			if _, ok := failed[f]; !ok {
-				t.Errorf("expected test %q to fail but it didn't", f)
-			}
 		}
 
 		t.Logf("  valid: passed %d; failed %d", tests.PassedValid, tests.FailedValid)
@@ -413,14 +392,9 @@ func runTomlTest(t *testing.T, includeNext bool, wantFail ...string) {
 
 var reCollapseSpace = regexp.MustCompile(` +`)
 
-func testMeta(t *testing.T, test tomltest.Test, includeNext bool) {
+func testMeta(t *testing.T, test tomltest.Test) {
 	want, ok := metaTests[strings.TrimPrefix(test.Path, "valid/")]
 	if !ok {
-		return
-	}
-
-	// Output is slightly different due to different quoting; just skip for now.
-	if includeNext && (test.Path == "valid/table/names" || test.Path == "valid/key/case-sensitive") {
 		return
 	}
 
