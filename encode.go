@@ -201,7 +201,7 @@ func (enc *Encoder) encode(key Key, rv reflect.Value) {
 			return
 		}
 		enc.eTable(key, rv)
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if rv.IsNil() {
 			return
 		}
@@ -273,7 +273,7 @@ func (enc *Encoder) eElement(rv reflect.Value) {
 	}
 
 	switch rv.Kind() {
-	case reflect.Ptr:
+	case reflect.Pointer:
 		enc.eElement(rv.Elem())
 		return
 	case reflect.String:
@@ -446,7 +446,7 @@ func (enc *Encoder) eMap(key Key, rv reflect.Value, inline bool) {
 }
 
 func pointerTo(t reflect.Type) reflect.Type {
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		return pointerTo(t.Elem())
 	}
 	return t
@@ -600,7 +600,7 @@ func tomlTypeOfGo(rv reflect.Value) tomlType {
 			return tomlArrayHash
 		}
 		return tomlArray
-	case reflect.Ptr, reflect.Interface:
+	case reflect.Pointer, reflect.Interface:
 		return tomlTypeOfGo(rv.Elem())
 	case reflect.String:
 		return tomlString
@@ -697,7 +697,7 @@ func isEmpty(rv reflect.Value) bool {
 		return true
 	case reflect.Bool:
 		return !rv.Bool()
-	case reflect.Ptr:
+	case reflect.Pointer:
 		return rv.IsNil()
 	}
 	return false
@@ -760,7 +760,7 @@ func encPanic(err error) {
 
 // Resolve any level of pointers to the actual value (e.g. **string → string).
 func eindirect(v reflect.Value) reflect.Value {
-	if v.Kind() != reflect.Ptr && v.Kind() != reflect.Interface {
+	if v.Kind() != reflect.Pointer && v.Kind() != reflect.Interface {
 		if isMarshaler(v) {
 			return v
 		}
@@ -781,7 +781,7 @@ func eindirect(v reflect.Value) reflect.Value {
 
 func isNil(rv reflect.Value) bool {
 	switch rv.Kind() {
-	case reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return rv.IsNil()
 	default:
 		return false

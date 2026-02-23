@@ -135,7 +135,7 @@ var (
 // Decode TOML data in to the pointer `v`.
 func (dec *Decoder) Decode(v any) (MetaData, error) {
 	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Ptr {
+	if rv.Kind() != reflect.Pointer {
 		s := "%q"
 		if reflect.TypeOf(v) == nil {
 			s = "%v"
@@ -606,7 +606,7 @@ func rvalue(v any) reflect.Value {
 // An exception to this rule is if the value satisfies an interface of interest
 // to us (like encoding.TextUnmarshaler).
 func indirect(v reflect.Value) reflect.Value {
-	if v.Kind() != reflect.Ptr {
+	if v.Kind() != reflect.Pointer {
 		if v.CanSet() {
 			pv := v.Addr()
 			pvi := pv.Interface()
